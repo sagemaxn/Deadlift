@@ -1,33 +1,30 @@
 'use client'
 
 import { useState, useEffect } from 'react';
+import Grid from '../components/Grid'
 import Figure from '../components/Figure';
+import MomentArm from '../components/MomentArm'
 import {findOptimalConfiguration} from "@/lib/utils";
 const Home = () => {
-  const [ankleP, setAnkleP] = useState({x: 0, y: 0})
-  const [handP, setHandP] = useState({x: 0, y: 0})
-  const [kneeP, setKneeP] = useState({x: 0, y: 0})
-  const [hipP, setHipP] = useState({x: 0, y: 0})
-  const [shoulderP, setShoulderP] = useState({x: 0, y: 0})
-  const [configurations, setConfig] = useState([{shoulder: {x: 0, y: 0}, ankle: {x: 0, y: 0}, hand:{x: 0, y: 0}, hip:{x: 0, y: 0}, knee:{x: 0, y: 0},}])
+  const [configuration, setConfig] = useState({shoulder: {x: 0, y: 0}, neck: {x: 0, y: 0}, ankle: {x: 0, y: 0}, hand:{x: 0, y: 0}, hip:{x: 0, y: 0}, knee:{x: 0, y: 0},})
   useEffect(() => {
-    let { JOINTS, configurations } = findOptimalConfiguration({lowerLeg:50, upperLeg: 50, torso: 100, arm: 80})
-    let {knee, hip, ankle, shoulder, hand} = JOINTS
-    setHipP(hip)
-    setAnkleP(ankle)
-    setShoulderP(shoulder)
-    setKneeP(knee)
-    setHandP(hand)
-    setConfig(configurations)
+    let JOINTS = findOptimalConfiguration({lowerLeg:30, upperLeg: 35, torso: 43, arm: 40})
+    //let {knee, hip, ankle, shoulder, hand} = JOINTS
+    setConfig(JOINTS)
+
   }, []);
 
-  if(configurations.length < 1)
-    return null
-  else
+
+  const { ankle, knee, hip, shoulder, neck, hand } = configuration;
+  //
+  // if()
+  //   return null
+  // else
     return (
-        <div>
-          <Figure configurations={configurations}/>
-        </div>
+        <Grid>
+          <Figure ankle={ankle} shoulder={shoulder} neck={neck} hand={hand} hip={hip} knee={knee} torsoLength={0}/>
+          <MomentArm endX={hand.x} startX={hip.x} ankle={ankle}></MomentArm>
+        </Grid>
     );
 };
 export default Home;

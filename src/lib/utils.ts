@@ -5,18 +5,14 @@ interface JOINT {
     y: number
 }
 
-//considering hand to be a joint for simplicity
+//considering hand to be a joint for simplicity. ankle is placed exactly at foot position as well
 interface JOINTS {
+    neck: JOINT
     shoulder: JOINT;
     hip: JOINT;
     knee: JOINT;
     ankle: JOINT;
     hand: JOINT;
-}
-
-interface end {
-    JOINTS: JOINTS;
-    configurations: configurations
 }
 
 const JOINT_CONSTRAINTS = {
@@ -33,12 +29,10 @@ const JOINT_CONSTRAINTS = {
         max: 2.356
     },
     ankle: {
-        min: 0,
+        min: 0.262,
         max: 0.262
     }
 };
-
-
 interface LIMB_LENGTHS {
     lowerLeg: number
     upperLeg: number;
@@ -47,9 +41,11 @@ interface LIMB_LENGTHS {
 }
 
 // Starting point
-const foot = { x: 100, y: 300 };
-//ending point
-const hand = { x: 123, y: 278}
+export const foot = { x: 100, y: 300 };
+
+//ending point. x value 13 points in front of foot (barbell supposed to be placed over midfoot. Average foot length is approximately 26cm)
+//Barbell would be the radius of a typical weight plate distance above the floor. Standard diameter is 45cm, so the y value is 22.5 away from foot's y value. (less than due to how it is plotted.
+export const hand = { x: foot.x + 13, y: foot.y - 22.5}
 
 interface Position {
     x: number;
@@ -63,29 +59,40 @@ interface Angles {
     ankle: number;
 }
 
-function calculateDistance(start: Position, end: Position, expectedDistance: number): boolean {
+export function calculateDistance(start: Position, end: Position): number {
     const deltaX = end.x - start.x;
     const deltaY = end.y - start.y;
     const actualDistance = Math.sqrt(deltaX ** 2 + deltaY ** 2);
-    console.log(`expected: ${expectedDistance}`)
     console.log(`actual distance: ${actualDistance}`)
-
-    //is the difference in expected length and actual length < 0.5
-    let dist = Math.abs(actualDistance - expectedDistance) < 0.5
-    console.log(`dist: ${dist}`);
-    return dist;
-
+    return actualDistance
 }
 
+export function calculateNeckAndShoulderPosition(hipPosition: Position, targetShoulderX: number, torsoLength: number) {
+    const headRadius = 7.2;
+    // Calculate directional vector from hip to shoulder
+    let deltaX = targetShoulderX - hipPosition.x;
+    let deltaY = Math.sqrt((torsoLength * 0.7) ** 2 - deltaX ** 2);
+    let shoulderY = hipPosition.y - deltaY;
+    let shoulder = { x: targetShoulderX, y: shoulderY };
 
-function calculateShoulderPosition(hipPosition: Position, targetShoulderX: number, torsoLength: number): number {
-    const deltaX = targetShoulderX - hipPosition.x;
-    const deltaY2 = torsoLength**2 - deltaX**2;
-    const deltaY = Math.sqrt(deltaY2);
-    return hipPosition.y - deltaY;
+    // Vector normalization
+    let length = Math.sqrt(deltaX ** 2 + deltaY ** 2);
+    let unitVectorX = deltaX / length;
+    let unitVectorY = deltaY / length;
+
+    // The additional length to get to full torso length, considering the radius of the head
+    let extensionLength = torsoLength * 0.3 - headRadius;
+
+    // Calculate neck position
+    let neckX = shoulder.x + unitVectorX * extensionLength;
+    let neckY = shoulder.y - unitVectorY * extensionLength;
+
+    let neck = { x: neckX, y: neckY };
+
+    return { shoulder, neck };
 }
 
-    export function calculateJointPositionsFromAngles(angles: Angles, limbLengths: LIMB_LENGTHS, foot: { x: number; y: number; }) {
+    export function calculateJointPositionsFromAngles(angles: Angles, limbLengths: LIMB_LENGTHS) {
     const kneeAngleRad = angles.ankle
     const hipAngleRad = angles.knee;
 
@@ -101,65 +108,73 @@ function calculateShoulderPosition(hipPosition: Position, targetShoulderX: numbe
         y: knee.y - limbLengths.upperLeg * Math.cos(hipAngleRad)
     };
 
-    const shoulderY = calculateShoulderPosition(hip, hand.x, limbLengths.torso)
-    const shoulder = {
-        x: hand.x,
-        y: shoulderY,
-    };
-    return { shoulder, hip, knee, ankle, hand };
+    const {shoulder, neck} = calculateNeckAndShoulderPosition(hip, hand.x, limbLengths.torso)
+
+    return { neck, shoulder, hip, knee, ankle };
 }
 
+export function findOptimalConfiguration(limbLengths: LIMB_LENGTHS): JOINTS {
+    let kneeAngle: number = JOINT_CONSTRAINTS.knee.max;
+    let configurations: any = [];
+    let closestConfiguration = null;
+    let closestDistance:number = Infinity;
+    let adjustmentStep:number = 0.01;
+    let maxAdjustmentPercentage:number = 0.20;
+    let originalShoulderX:number = hand.x;
+    let maxAdjustments:number = Math.ceil(maxAdjustmentPercentage / adjustmentStep);
+    let adjustmentDirection:number = 1;
 
-export function findOptimalConfiguration(limbLengths: LIMB_LENGTHS): end {
-    // Start with the knee as flexed as possible for the lowest hip position
-    let kneeAngle = JOINT_CONSTRAINTS.knee.max
+    // Attempt to find an initial configuration
+    for (; kneeAngle >= JOINT_CONSTRAINTS.knee.min; kneeAngle -= Math.PI / 180) {
+        let angles = {
+            shoulder: JOINT_CONSTRAINTS.shoulder.min,
+            hip: JOINT_CONSTRAINTS.hip.min,
+            knee: kneeAngle,
+            ankle: JOINT_CONSTRAINTS.ankle.min
+        };
 
-    let configurations: configurations = [];
-    let angles: Angles = {
-        shoulder: 0,
-        hip: JOINT_CONSTRAINTS.hip.min,
-        knee: kneeAngle,
-        ankle: JOINT_CONSTRAINTS.ankle.min
-    };
+        let { neck, shoulder, hip, knee, ankle } = calculateJointPositionsFromAngles(angles, limbLengths);
+        let currentDistance = calculateDistance(shoulder, hand)
+        let config = {ankle, knee, hip, shoulder, neck, hand}
+        // Update closest configuration if this one is better
+        if (currentDistance < closestDistance) {
+            closestDistance = currentDistance;
+            closestConfiguration = config;
+        }
+        configurations.push(config)
 
-    let configurationFound = false;
-    let { shoulder, knee, ankle, hip} = calculateJointPositionsFromAngles(angles, limbLengths, foot);
+        // Check if the hand can reach the target within the margin
 
-    while (!configurationFound) {
-        ({ shoulder, knee, ankle, hip } = calculateJointPositionsFromAngles(angles, limbLengths, foot));
-        let canReach = calculateDistance(shoulder, hand, limbLengths.arm);
-
-        configurations.push({shoulder, knee, ankle, hip, hand});
-
-
-        if (canReach) {
-            console.log('can reach!!')
-            configurationFound = true;
-        } else {
-            kneeAngle -= Math.PI / 180; // Decreasing by one degree in radians
-            console.log(`knee angle: ${kneeAngle}`)
-            if (kneeAngle < JOINT_CONSTRAINTS.knee.min) {
-                console.log('Knee angle is beyond allowed minimum');
-                break;
-            }
-            angles.knee = kneeAngle;
+        if (Math.abs(currentDistance - limbLengths.arm) < 0.5) {
+            console.log(`config found, expected length: ${limbLengths.arm}, actual length: ${currentDistance}`)
+            return config;
         }
     }
 
-    if (configurationFound) {
+    // If initial configuration not found, adjust shoulder x value position iteratively
+    for (let i = 0; i < maxAdjustments && closestConfiguration; i++) {
+        let adjustedShoulderX = originalShoulderX + (originalShoulderX * maxAdjustmentPercentage * adjustmentDirection * (i + 1));
+        closestConfiguration.shoulder.x = adjustedShoulderX;
+        let {shoulder, neck}= calculateNeckAndShoulderPosition(closestConfiguration.hip, adjustedShoulderX, limbLengths.torso);
+        closestConfiguration.shoulder = shoulder
+        closestConfiguration.neck = neck
 
-        console.log('configuration found')
-        console.log(configurations)
-        return {JOINTS: {shoulder, knee, ankle, hip, hand}, configurations};
+        configurations.push(closestConfiguration)
+
+        // Check if this adjusted configuration works
+        let currentDistance = calculateDistance(closestConfiguration.shoulder, hand)
+        if (Math.abs(currentDistance - limbLengths.arm) < 0.5) {
+            console.log('adjusted config found')
+            return closestConfiguration;
+        }
+
+        // Alternate adjustment direction
+        adjustmentDirection *= -1;
     }
-    else {
-        console.log(`no config found`)
-        console.log(configurations)
-        return {JOINTS:
-                {
-                    shoulder, knee, ankle, hip, hand
-                }, configurations}
-    }
+
+    // Return last attempt if match not found. Will need to make something better
+    console.log('no config found')
+    return configurations[configurations.length - 1];
 }
 
 
